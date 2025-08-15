@@ -17,6 +17,9 @@ lxml==5.2.2
 google-cloud-vision==3.7.4
 pytesseract==0.3.10
 Pillow==10.4.0
+numpy==1.26.4
+scipy==1.12.0
+joblib==1.4.2
 scikit-learn==1.4.2
 joblib==1.4.2
 numpy==1.26.4
