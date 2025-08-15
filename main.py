@@ -1,4 +1,5 @@
-
+# main.py
+import os
 import asyncio
 from flask import Flask, request, Response
 from aiogram.types import Update
@@ -7,33 +8,35 @@ from app.settings import settings
 from app.bot import bot, dp
 
 WEBHOOK_PATH = f"/webhook/{settings.webhook_secret}"
-WEBHOOK_URL = settings.webhook_url + WEBHOOK_PATH if settings.webhook_url else ""
+WEBHOOK_URL = (settings.webhook_url + WEBHOOK_PATH) if settings.webhook_url else ""
 
 app = Flask(__name__)
-loop = asyncio.new_event_loop()
-asyncio.set_event_loop(loop)
 
 @app.post(WEBHOOK_PATH)
-def handle_webhook():
-    update = Update.model_validate(request.json)
-    loop.create_task(dp.feed_update(bot, update))
-    return Response()
+async def webhook() -> Response:
+    update = Update.model_validate(await request.get_json())
+    await dp.feed_update(bot, update)
+    return Response(status=200)
 
-@app.get("/")
-def hello():
-    return "Bot is alive"
+async def run_webhook():
+    import hypercorn.asyncio, hypercorn.config
+    cfg = hypercorn.config.Config()
+    # для Web Service на Render:
+    cfg.bind = [f"0.0.0.0:{os.getenv('PORT', '10000')}"]
+    await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
+    print(f"✅ Webhook установлен: {WEBHOOK_URL}")
+    await hypercorn.asyncio.serve(app, cfg)
+
+async def run_polling():
+    await bot.delete_webhook(drop_pending_updates=True)
+    print("🔄 WEBHOOK_URL не задан — запускаю long-polling")
+    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
 
 async def main():
     if WEBHOOK_URL:
-        await bot.set_webhook(WEBHOOK_URL)
-        print(f"✅ Webhook установлен: {WEBHOOK_URL}")
+        await run_webhook()
     else:
-        print("⚠️ WEBHOOK_URL не задан. Укажи WEBHOOK_URL в .env, чтобы включить вебхук.")
-    import hypercorn.asyncio
-    import hypercorn.config
-    config = hypercorn.config.Config()
-    config.bind = ["0.0.0.0:10000"]
-    await hypercorn.asyncio.serve(app, config)
+        await run_polling()
 
 if __name__ == "__main__":
-    loop.run_until_complete(main())
+    asyncio.run(main())
