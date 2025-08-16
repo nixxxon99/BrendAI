@@ -311,3 +311,20 @@ def set_image_url_for_brand(name: str, url: str) -> bool:
     except Exception as e:
         print("[brands] set_image_url_for_brand error:", e)
         return False
+# --- helper for vision keyboard (compat) ---
+try:
+    from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
+    def _kb_find(query: str, limit: int = 8):
+        try:
+            pairs = fuzzy_suggest(query, limit=limit)
+            names = [p[0] if isinstance(p, tuple) else str(p) for p in pairs][:limit]
+            if not names:
+                return None
+            rows = [[InlineKeyboardButton(text=name, callback_data=f"brand:{name}")]
+                    for name in names]
+            return InlineKeyboardMarkup(inline_keyboard=rows)
+        except Exception:
+            return None
+except Exception:
+    def _kb_find(query: str, limit: int = 8):
+        return None
