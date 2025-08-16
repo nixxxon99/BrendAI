@@ -9,10 +9,12 @@ from app.bot import bot, dp
 from app.settings import settings
 
 app = Flask(__name__)
+logging.basicConfig(level=logging.INFO)
 
-# Базовый URL сервиса и секрет
-BASE_URL = (settings.webhook_url or "").rstrip("/")   # напр. https://brendai.onrender.com
-SECRET    = settings.webhook_secret                   # строка без пробелов
+# Базовый URL твоего Web Service на Render и секрет
+# WEBHOOK_URL и WEBHOOK_SECRET читаются из окружения через app/settings.py
+BASE_URL = (settings.webhook_url or "").rstrip("/")    # напр. https://brendai.onrender.com
+SECRET   = settings.webhook_secret                     # строка без пробелов
 WEBHOOK_PATH = f"/webhook/{SECRET}"
 WEBHOOK_URL  = f"{BASE_URL}{WEBHOOK_PATH}" if BASE_URL else None
 
@@ -26,21 +28,25 @@ def health():
 
 @app.post(WEBHOOK_PATH)
 async def telegram_webhook() -> Response:
-    # Доп. защита: проверим секретный заголовок Telegram
+    # Защита: Telegram пришлёт заголовок с тем же секретом
     if SECRET and request.headers.get("X-Telegram-Bot-Api-Secret-Token") != SECRET:
         return abort(403)
 
-    update = Update.model_validate(await request.get_json())
+    # ВАЖНО: во Flask get_json() синхронный — без await
+    data = request.get_json(silent=True, force=True) or {}
+    update = Update.model_validate(data)
+
     await dp.feed_update(bot, update)
     return Response(status=200)
 
 async def main():
-    logging.basicConfig(level=logging.INFO)
-
     if not WEBHOOK_URL:
-        raise RuntimeError("WEBHOOK_URL пуст. Для Worker-режима включайте polling, а здесь используем веб-хуки.")
+        raise RuntimeError(
+            "WEBHOOK_URL пуст. Для веб-хуков нужен Web Service и валидный URL "
+            "(например, https://<имя>.onrender.com)."
+        )
 
-    # Ставим вебхук (чистим старые апдейты)
+    # Ставим вебхук и очищаем старые апдейты
     await bot.set_webhook(
         WEBHOOK_URL,
         secret_token=SECRET,
@@ -49,11 +55,11 @@ async def main():
     )
     print(f"✅ Webhook set: {WEBHOOK_URL}")
 
-    # Запускаем Hypercorn и слушаем порт, который даёт Render
+    # Render прокидывает порт в $PORT — слушаем его
     from hypercorn.asyncio import serve
     from hypercorn.config import Config
     cfg = Config()
-    cfg.bind = [f"0.0.0.0:{os.getenv('PORT', '10000')}"]  # Render прокинет $PORT
+    cfg.bind = [f"0.0.0.0:{os.getenv('PORT', '10000')}"]
     await serve(app, cfg)
 
 if __name__ == "__main__":
