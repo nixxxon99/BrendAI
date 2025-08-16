@@ -9,5 +9,7 @@ chardet==5.2.0
 pandas==2.2.2
 uvloop==0.20.0; sys_platform != 'win32'
 redis==5.0.7
-pydantic==2.8.2
+# aiogram 3.4.1 requires pydantic >=2.4.1,<2.6
+pydantic==2.5.3
+# pick a pydantic-settings version from the same timeframe
 pydantic-settings==2.5.2
