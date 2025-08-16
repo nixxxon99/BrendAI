@@ -1,42 +1,60 @@
-# main.py
+# main.py — чистый webhook для Aiogram v3 + Flask/Hypercorn
 import os
 import asyncio
-from flask import Flask, request, Response
+import logging
+from flask import Flask, request, Response, abort
 from aiogram.types import Update
 
-from app.settings import settings
 from app.bot import bot, dp
-
-WEBHOOK_PATH = f"/webhook/{settings.webhook_secret}"
-WEBHOOK_URL = (settings.webhook_url + WEBHOOK_PATH) if settings.webhook_url else ""
+from app.settings import settings
 
 app = Flask(__name__)
 
+# Базовый URL сервиса и секрет
+BASE_URL = (settings.webhook_url or "").rstrip("/")   # напр. https://brendai.onrender.com
+SECRET    = settings.webhook_secret                   # строка без пробелов
+WEBHOOK_PATH = f"/webhook/{SECRET}"
+WEBHOOK_URL  = f"{BASE_URL}{WEBHOOK_PATH}" if BASE_URL else None
+
+@app.get("/")
+def root():
+    return "BrendAI webhook OK", 200
+
+@app.get("/_healthz")
+def health():
+    return "ok", 200
+
 @app.post(WEBHOOK_PATH)
-async def webhook() -> Response:
+async def telegram_webhook() -> Response:
+    # Доп. защита: проверим секретный заголовок Telegram
+    if SECRET and request.headers.get("X-Telegram-Bot-Api-Secret-Token") != SECRET:
+        return abort(403)
+
     update = Update.model_validate(await request.get_json())
     await dp.feed_update(bot, update)
     return Response(status=200)
 
-async def run_webhook():
-    import hypercorn.asyncio, hypercorn.config
-    cfg = hypercorn.config.Config()
-    # для Web Service на Render:
-    cfg.bind = [f"0.0.0.0:{os.getenv('PORT', '10000')}"]
-    await bot.set_webhook(WEBHOOK_URL, drop_pending_updates=True)
-    print(f"✅ Webhook установлен: {WEBHOOK_URL}")
-    await hypercorn.asyncio.serve(app, cfg)
-
-async def run_polling():
-    await bot.delete_webhook(drop_pending_updates=True)
-    print("🔄 WEBHOOK_URL не задан — запускаю long-polling")
-    await dp.start_polling(bot, allowed_updates=dp.resolve_used_update_types())
-
 async def main():
-    if WEBHOOK_URL:
-        await run_webhook()
-    else:
-        await run_polling()
+    logging.basicConfig(level=logging.INFO)
+
+    if not WEBHOOK_URL:
+        raise RuntimeError("WEBHOOK_URL пуст. Для Worker-режима включайте polling, а здесь используем веб-хуки.")
+
+    # Ставим вебхук (чистим старые апдейты)
+    await bot.set_webhook(
+        WEBHOOK_URL,
+        secret_token=SECRET,
+        drop_pending_updates=True,
+        allowed_updates=dp.resolve_used_update_types(),
+    )
+    print(f"✅ Webhook set: {WEBHOOK_URL}")
+
+    # Запускаем Hypercorn и слушаем порт, который даёт Render
+    from hypercorn.asyncio import serve
+    from hypercorn.config import Config
+    cfg = Config()
+    cfg.bind = [f"0.0.0.0:{os.getenv('PORT', '10000')}"]  # Render прокинет $PORT
+    await serve(app, cfg)
 
 if __name__ == "__main__":
     asyncio.run(main())
