@@ -2,7 +2,6 @@
 import os
 import logging
 from aiohttp import web
-from aiogram.types import Update
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 
 from app.bot import bot, dp
@@ -10,13 +9,12 @@ from app.settings import settings
 
 logging.basicConfig(level=logging.INFO)
 
-# Базовый URL твоего Web Service и секрет берём из настроек/окружения
-BASE_URL = (settings.webhook_url or "").rstrip("/")   # пример: https://brendai.onrender.com
-SECRET   = settings.webhook_secret                     # строка без пробелов
+# Базовый URL твоего Web Service и секрет берём из окружения через settings
+BASE_URL = (settings.webhook_url or "").rstrip("/")      # пример: https://brendai.onrender.com
+SECRET   = settings.webhook_secret                       # строка без пробелов
 WEBHOOK_PATH = f"/webhook/{SECRET}"
 WEBHOOK_URL  = f"{BASE_URL}{WEBHOOK_PATH}" if BASE_URL else ""
 
-# Простые health-ручки
 async def root(_):
     return web.Response(text="BrendAI webhook OK")
 
@@ -29,10 +27,9 @@ async def on_startup(app: web.Application):
             "WEBHOOK_URL пуст. Для веб-хуков нужен валидный внешний URL, "
             "например https://<имя>.onrender.com"
         )
-    # Ставим вебхук с секретом и очищаем очереди
     await bot.set_webhook(
         WEBHOOK_URL,
-        secret_token=SECRET,
+        secret_token=SECRET,                        # Telegram пришлёт этот же секрет в заголовке
         drop_pending_updates=True,
         allowed_updates=dp.resolve_used_update_types(),
     )
@@ -43,18 +40,19 @@ async def on_shutdown(app: web.Application):
 
 def create_app() -> web.Application:
     app = web.Application()
-    # Регистрация хэндлера веб-хука со сверкой секретного заголовка
+
+    # Регистрируем обработчик вебхука с проверкой секрета (X-Telegram-Bot-Api-Secret-Token)
     SimpleRequestHandler(
         dispatcher=dp,
         bot=bot,
-        secret_token=SECRET,  # <-- сверяется с X-Telegram-Bot-Api-Secret-Token
+        secret_token=SECRET,
     ).register(app, path=WEBHOOK_PATH)
 
-    # health и корень
+    # health-ручки
     app.router.add_get("/", root)
     app.router.add_get("/_healthz", health)
 
-    # Подготовка приложения (фоновые задачи DP и т.п.)
+    # Подготовка приложения (запускает фоновые таски dp и т.д.)
     setup_application(app, dp, bot=bot)
 
     # Хуки старта/остановки
