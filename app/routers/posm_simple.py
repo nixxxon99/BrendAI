@@ -19,7 +19,7 @@ async def posm_text(m: Message, u):
     txt = (m.text or '').strip()
     if not txt:
         return
-    await m.answer("Принял заявку на списание:
+    await m.answer("Принял заявку на списание:")
 " + txt + "
 
 Детализация/экспорт в разработке.")
