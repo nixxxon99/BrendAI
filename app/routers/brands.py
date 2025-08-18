@@ -1,4 +1,5 @@
 from aiogram import Router, F
+from aiogram.types import Message, CallbackQuery   # <-- ЭТОГО НЕ ХВАТАЛО
 from aiogram.types import Message
 from app.keyboards.menus import CATALOG_BUTTON_TEXT
 from app.services.brands import suggest_candidates, brand_card
